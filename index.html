@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>190 SL — Анатомія легенди</title>
+<meta name="description" content="Інтерактивна 3D-історія Mercedes-Benz 190 SL: від першого прототипу 1954 року до кожного поршня. Концепт для портфоліо.">
+<meta name="theme-color" content="#070606">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='none' stroke='%23b8344a' stroke-width='2'/%3E%3Cpath d='M16 3 18 15 16 16 14 15ZM16 16 27 22.5 26 24 15.5 17.5ZM16 16 6 24 5 22.5 16.5 15.5Z' fill='%23b8344a'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="preload" href="assets/car.bin" as="fetch" crossorigin>
+<link rel="preload" href="assets/wheel.bin" as="fetch" crossorigin>
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.min.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
+</head>
+<body class="is-loading">
+
+<!-- ============ preloader ============ -->
+<div class="loader" id="loader" aria-live="polite">
+  <svg class="loader__star" viewBox="0 0 120 120" aria-hidden="true">
+    <circle cx="60" cy="60" r="54" />
+    <path d="M60 8 L64.5 55 L60 60 L55.5 55 Z M60 60 L105 86 L102 91 L57.5 64 Z M60 60 L18 91 L15 86 L62.5 64 Z" />
+  </svg>
+  <div class="loader__meta">
+    <span class="mono">Збираємо легенду</span>
+    <span class="loader__pct mono"><b id="pct">0</b>%</span>
+  </div>
+  <div class="loader__bar"><i id="bar"></i></div>
+</div>
+
+<!-- ============ background layers ============ -->
+<div class="bg" aria-hidden="true">
+  <div class="bg__glow"></div>
+  <svg class="bg__rings" viewBox="-500 -500 1000 1000">
+    <circle r="160" /><circle r="250" /><circle r="345" class="dash" /><circle r="450" />
+  </svg>
+  <div class="bg__grain"></div>
+</div>
+<canvas id="stage" aria-label="3D-модель Mercedes-Benz 190 SL, що реагує на курсор"></canvas>
+<div class="vignette" aria-hidden="true"></div>
+
+<!-- hotspot labels pinned to 3D parts -->
+<div class="hotspots" id="hotspots" aria-hidden="true"></div>
+
+<!-- ============ chrome ============ -->
+<header class="nav">
+  <a href="#top" class="nav__logo" data-scroll="#top" aria-label="На початок">
+    <svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/><path d="M60 8 L64.5 55 L60 60 L55.5 55 Z M60 60 L105 86 L102 91 L57.5 64 Z M60 60 L18 91 L15 86 L62.5 64 Z"/></svg>
+    <span>190&nbsp;SL</span>
+  </a>
+  <nav class="nav__links" aria-label="Розділи">
+    <a href="#history" data-scroll="#history">Історія</a>
+    <a href="#anatomy" data-scroll="#anatomy">Анатомія</a>
+    <a href="#engine" data-scroll="#engine">Двигун</a>
+    <a href="#wheels" data-scroll="#wheels">Колеса</a>
+    <a href="#specs" data-scroll="#specs">Дані</a>
+  </nav>
+  <a href="#paint" class="btn btn--ghost btn--sm magnetic" data-scroll="#paint"><span>Обрати колір</span></a>
+</header>
+
+<aside class="rail" aria-hidden="true">
+  <div class="rail__track"><i id="railFill"></i></div>
+  <ol class="rail__dots" id="railDots"></ol>
+</aside>
+
+<div class="hud mono" aria-hidden="true">
+  <span id="hudChapter">00 — Вступ</span>
+  <span class="hud__sep"></span>
+  <span id="hudPct">000</span>
+</div>
+
+<div class="cursor" id="cursor" aria-hidden="true"><i></i><span id="cursorLabel"></span></div>
+
+<!-- ============ story ============ -->
+<main id="top">
+
+  <section class="sec hero" data-scene="hero" data-title="Вступ">
+    <div class="wrap">
+      <p class="eyebrow reveal"><i></i>Mercedes-Benz · W121 · 1955—1963</p>
+      <h1 class="hero__title">
+        <span class="line"><span>190</span></span>
+        <span class="line"><span><em>SL</em></span></span>
+      </h1>
+      <p class="hero__lead reveal">Родстер, що зробив мрію про «SL» доступною. Проведіть курсором — він стежить за вами. Гортайте — і ми розберемо його до останнього поршня.</p>
+      <div class="hero__cta reveal">
+        <a href="#anatomy" class="btn btn--wine magnetic" data-scroll="#anatomy"><span>Розібрати легенду</span><svg viewBox="0 0 24 24"><path d="M12 4v16m0 0-6-6m6 6 6-6"/></svg></a>
+        <a href="#history" class="btn btn--ghost magnetic" data-scroll="#history"><span>Історія марки</span></a>
+      </div>
+    </div>
+    <dl class="hero__stats reveal">
+      <div><dt>Потужність</dt><dd>105 <small>к.с.</small></dd></div>
+      <div><dt>Робочий об'єм</dt><dd>1897 <small>см³</small></dd></div>
+      <div><dt>Випущено</dt><dd>25 881 <small>авто</small></dd></div>
+    </dl>
+    <div class="scroll-hint mono" aria-hidden="true"><span>Гортайте</span><i></i></div>
+  </section>
+
+  <section class="sec sec--right" id="history" data-scene="history" data-title="Історія">
+    <div class="panel">
+      <p class="eyebrow reveal"><i></i>01 — Звідки зірка</p>
+      <h2 class="h2 split">Сто сорок років <em>до</em> цієї машини</h2>
+      <p class="lead reveal">Історія Mercedes-Benz — це історія самого автомобіля. Усе почалося з триколісного екіпажа з бензиновим мотором і закінчилося — ні, не закінчилося.</p>
+      <ol class="timeline">
+        <li class="reveal"><b>1886</b><div><h3>Benz Patent-Motorwagen</h3><p>Карл Бенц патентує «екіпаж із газовим двигуном» — перший автомобіль у світі.</p></div></li>
+        <li class="reveal"><b>1901</b><div><h3>Народження імені</h3><p>Daimler будує Mercedes 35 PS на замовлення Еміля Єллінека й називає машину на честь його доньки — Мерседес.</p></div></li>
+        <li class="reveal"><b>1909</b><div><h3>Трипроменева зірка</h3><p>DMG реєструє знак: мотори для землі, води й повітря.</p></div></li>
+        <li class="reveal"><b>1926</b><div><h3>Daimler-Benz</h3><p>Дві найстаріші автомобільні компанії об'єднуються — з'являється Mercedes-Benz.</p></div></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="sec sec--left" id="birth" data-scene="birth" data-title="Прототип">
+    <div class="panel">
+      <p class="eyebrow reveal"><i></i>02 — Прем'єра в Нью-Йорку</p>
+      <h2 class="h2 split">Лютий 1954. <em>Прототип</em> поруч із «Крилом чайки»</h2>
+      <p class="lead reveal">Американський імпортер Макс Гоффман переконав Штутгарт: Америці потрібні два спорткари — гоночний 300 SL і доступніший, елегантний 190 SL. Обидва дебютували на International Motor Sports Show у Нью-Йорку.</p>
+      <p class="body reveal">Прототип 190 SL доопрацьовували ще рік: серійне виробництво стартувало у травні 1955-го. В основі — укорочена платформа седана «Понтон», несучий кузов і стиль, позичений у старшого брата 300 SL.</p>
+      <div class="facts">
+        <div class="fact reveal"><span class="fact__num" data-count="1954" data-year>1954</span><span class="fact__cap">світова прем'єра</span></div>
+        <div class="fact reveal"><span class="fact__num" data-count="25881">25 881</span><span class="fact__cap">авто за 8 років</span></div>
+        <div class="fact reveal"><span class="fact__num" data-count="2">2</span><span class="fact__cap">місця + знімний хардтоп</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec--left sec--tall" id="anatomy" data-scene="anatomy" data-title="Анатомія">
+    <div class="panel">
+      <p class="eyebrow reveal"><i></i>03 — Анатомія</p>
+      <h2 class="h2 split">Розберемо <em>легенду</em> на частини</h2>
+      <p class="lead reveal">Кожна деталь має історію. Наведіть на мітки — і гортайте далі.</p>
+    </div>
+  </section>
+
+  <section class="sec sec--left" id="body" data-scene="body" data-title="Кузов">
+    <div class="panel">
+      <p class="eyebrow reveal"><i></i>04 — Кузов</p>
+      <h2 class="h2 split">Сталь, а <em>зверху</em> — алюміній</h2>
+      <p class="lead reveal">Несучий сталевий кузов, а капот, двері й кришка багажника — алюмінієві. Так 190 SL ставав легшим, не втрачаючи жорсткості.</p>
+      <ul class="chips reveal"><li>Несучий кузов</li><li>Алюмінієві панелі</li><li>Знімний хардтоп</li><li>Хромовані бампери</li></ul>
+    </div>
+  </section>
+
+  <section class="sec sec--right sec--tall" id="interior" data-scene="interior" data-title="Салон">
+    <div class="panel panel--glass">
+      <p class="eyebrow reveal"><i></i>05 — Салон</p>
+      <h2 class="h2 split">Шкіра, хром і <em>слонова</em> кістка</h2>
+      <p class="lead reveal">Тонке кермо кольору слонової кістки з хромованим кільцем сигналу, прилади з білими циферблатами, радіо Becker і бардачок у панелі кольору кузова. Два місця — і жодного зайвого.</p>
+      <ul class="chips reveal"><li>Шкіряні сидіння з вертикальною прострочкою</li><li>Панель у колір кузова</li><li>Радіо Becker Mexico</li><li>Кермо з кільцем сигналу</li></ul>
+      <p class="body reveal" style="margin-top:18px">Наведіть на мітки: стрілки приладів живі — спідометр реагує на швидкість скролу.</p>
+    </div>
+  </section>
+
+  <section class="sec sec--left" id="engine" data-scene="engine" data-title="Двигун">
+    <div class="panel">
+      <p class="eyebrow reveal"><i></i>06 — Серце</p>
+      <h2 class="h2 split">M121: <em>чотири</em> циліндри характеру</h2>
+      <p class="lead reveal">Рядна «четвірка» з верхнім розподільним валом і двома двокамерними карбюраторами Solex 44 PHH. Двигун-родоначальник: його нащадки десятиліттями працювали в седанах Mercedes.</p>
+      <dl class="spec-list reveal">
+        <div><dt>Об'єм</dt><dd>1897 см³</dd></div>
+        <div><dt>Потужність</dt><dd>105 к.с. · 5700 об/хв</dd></div>
+        <div><dt>Газорозподіл</dt><dd>SOHC, 8 клапанів</dd></div>
+        <div><dt>Живлення</dt><dd>2 × Solex 44 PHH</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="sec sec--left sec--tall" id="pistons" data-scene="pistons" data-title="Поршні">
+    <div class="panel">
+      <p class="eyebrow reveal"><i></i>07 — Поршні</p>
+      <h2 class="h2 split">Чотири такти, <em>що рухають</em> світ</h2>
+      <p class="lead reveal">Діаметр циліндра 85 мм, хід поршня 83,6 мм. Порядок роботи 1-3-4-2 — анімація нижче синхронізована з першим циліндром.</p>
+      <ol class="strokes" id="strokes">
+        <li data-stroke="0"><b>01</b><span>Впуск</span><small>поршень іде вниз, суміш заходить у циліндр</small></li>
+        <li data-stroke="1"><b>02</b><span>Стиск</span><small>суміш стискається у 8,5 раза</small></li>
+        <li data-stroke="2"><b>03</b><span>Робочий хід</span><small>іскра — і вибух штовхає поршень</small></li>
+        <li data-stroke="3"><b>04</b><span>Випуск</span><small>відпрацьовані гази виходять назовні</small></li>
+      </ol>
+      <div class="rpm mono"><span>Обертів:</span><b id="rpm">0</b><span>/хв</span></div>
+    </div>
+  </section>
+
+  <section class="sec sec--right" id="wheels" data-scene="wheels" data-title="Колеса">
+    <div class="panel panel--glass">
+      <p class="eyebrow reveal"><i></i>08 — Колеса й шини</p>
+      <h2 class="h2 split">Колесо, <em>розібране</em> до болта</h2>
+      <p class="lead reveal">Шина з класичною білою боковиною, хромований диск із зіркою на ковпачку, вентильований гальмівний диск і бордовий супорт. Наша версія — рестомод: у 1955-му тут стояли 13-дюймові штамповані диски й барабанні гальма.</p>
+      <div class="note reveal">
+        <span class="note__tag mono">Michelin</span>
+        <p>У 1946 році Michelin запатентувала радіальну шину — Michelin X. Вона жила вдвічі довше і краще тримала дорогу. Сьогодні колекціонери обувають 190 SL у класичні радіальні шини лінійки Michelin Collection — сучасна гума з історичним малюнком протектора.</p>
+      </div>
+      <ul class="chips reveal"><li>Подвійні поперечні важелі спереду</li><li>Хитний міст ззаду</li><li>Вентильовані гальмівні диски</li></ul>
+    </div>
+  </section>
+
+  <section class="sec sec--right" id="specs" data-scene="specs" data-title="Дані">
+    <div class="panel panel--wide">
+      <p class="eyebrow reveal"><i></i>09 — Збираємо назад</p>
+      <h2 class="h2 split">У цифрах</h2>
+      <div class="specs">
+        <div class="spec reveal"><span class="spec__num"><b data-count="105">105</b><small>к.с.</small></span><span class="spec__cap">при 5700 об/хв</span></div>
+        <div class="spec reveal"><span class="spec__num"><b data-count="172">172</b><small>км/год</small></span><span class="spec__cap">максимальна швидкість</span></div>
+        <div class="spec reveal"><span class="spec__num"><b data-count="14.5" data-dec="1">14,5</b><small>с</small></span><span class="spec__cap">0–100 км/год</span></div>
+        <div class="spec reveal"><span class="spec__num"><b data-count="1158">1158</b><small>кг</small></span><span class="spec__cap">споряджена маса</span></div>
+        <div class="spec reveal"><span class="spec__num"><b data-count="4">4</b><small>ст.</small></span><span class="spec__cap">механічна КПП</span></div>
+        <div class="spec reveal"><span class="spec__num"><b data-count="25881">25 881</b><small>шт.</small></span><span class="spec__cap">випущено 1955—1963</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec--center" id="paint" data-scene="paint" data-title="Колір">
+    <div class="panel panel--bottom">
+      <p class="eyebrow reveal"><i></i>10 — Ваш 190 SL</p>
+      <h2 class="h2 split">Оберіть <em>колір</em></h2>
+      <div class="swatches reveal" role="radiogroup" aria-label="Колір кузова">
+        <button class="swatch is-active" role="radio" aria-checked="true" data-color="#5a0b17" data-name="Бордо" style="--c:#6a1020"><i></i><span>Бордо</span></button>
+        <button class="swatch" role="radio" aria-checked="false" data-color="#0a0a0c" data-name="Обсидіан" style="--c:#15151a"><i></i><span>Обсидіан</span></button>
+        <button class="swatch" role="radio" aria-checked="false" data-color="#7d7a76" data-name="Срібний" style="--c:#a7a39d"><i></i><span>Срібний</span></button>
+        <button class="swatch" role="radio" aria-checked="false" data-color="#c9bfa8" data-name="Папірус" style="--c:#e3dac6"><i></i><span>Папірус</span></button>
+        <button class="swatch" role="radio" aria-checked="false" data-color="#1d3550" data-name="Атлантик" style="--c:#2b4d72"><i></i><span>Атлантик</span></button>
+        <button class="swatch" role="radio" aria-checked="false" data-color="#9e1a1f" data-name="Полуничний" style="--c:#c32a2f"><i></i><span>Полуничний</span></button>
+      </div>
+    </div>
+  </section>
+
+  <footer class="sec footer" data-scene="footer" data-title="Контакт">
+    <div class="wrap footer__inner">
+      <p class="eyebrow reveal"><i></i>Концепт · Дизайн · Розробка</p>
+      <h2 class="footer__title split">Маєте ідею, що заслуговує на <em>таку ж</em> подачу?</h2>
+      <a href="#" class="btn btn--wine btn--lg magnetic" id="contactBtn"><span>Обговорити проєкт</span><svg viewBox="0 0 24 24"><path d="M5 12h14m0 0-6-6m6 6-6 6"/></svg></a>
+      <div class="footer__bottom mono">
+        <span>© 2026 Dima Nikitchenko — портфоліо</span>
+        <span>Three.js · WebGL · GSAP</span>
+        <span>Неофіційний фан-концепт. Mercedes-Benz і 190 SL — торгові марки Mercedes-Benz Group AG.</span>
+      </div>
+    </div>
+  </footer>
+</main>
+
+<noscript><p class="noscript">Для 3D-досвіду потрібен JavaScript.</p></noscript>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/ScrollTrigger.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/SplitText.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

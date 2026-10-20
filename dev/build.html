@@ -1,0 +1,165 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>asset build</title>
+<style>html,body{margin:0;height:100%;background:#1a1a1a;color:#ddd;font:12px monospace}canvas{display:block}
+#ui{position:fixed;top:8px;left:8px;background:#000a;padding:8px;line-height:1.6}#ui button{margin-right:4px}</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
+</head><body>
+<div id="ui">explode <input id="ex" type="range" min="0" max="1" step="0.01" value="0"> <label><input id="tx" type="checkbox"> texture</label><br>
+<button id="save">save assets</button><span id="log"></span><pre id="stats"></pre></div>
+<script type="module">
+// Dev-only asset pipeline: splits the single OBJ mesh into named parts, quantizes it into
+// assets/car.bin + car.json, and bakes the albedo/material-mask textures. Run via the dev server.
+import * as THREE from 'three';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { PARTS, WHEELS, REGIONS, BODY, wheelOf } from './segment.js';
+
+const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(innerWidth, innerHeight); document.body.appendChild(r.domElement);
+const scene = new THREE.Scene(); const cam = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.01, 100); cam.position.set(2.6, 1.3, 2.6);
+const oc = new OrbitControls(cam, r.domElement); oc.target.set(0, 0.35, 0);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 2.2)); scene.add(new THREE.GridHelper(4, 40, 0x555555, 0x333333));
+Object.assign(window, { cam, oc, scene });
+
+const tex = new THREE.TextureLoader().load('../_src/shaded.png'); tex.colorSpace = THREE.SRGBColorSpace;
+const obj = await new OBJLoader().loadAsync('../_src/base.obj');
+let geo = obj.children[0].geometry; geo.deleteAttribute('color');
+geo = mergeVertices(geo, 1e-5);
+const pos = geo.attributes.position, nrm = geo.attributes.normal, uvs = geo.attributes.uv, idx = geo.index.array, triCount = idx.length / 3;
+
+// ---- split the mesh into parts, clipping triangles exactly on the region planes ----
+// vertex = [px,py,pz, nx,ny,nz, u,v]
+const vert = i => [pos.getX(i), pos.getY(i), pos.getZ(i), nrm.getX(i), nrm.getY(i), nrm.getZ(i), uvs.getX(i), uvs.getY(i)];
+const lerpV = (a, b, t) => a.map((v, k) => v + (b[k] - v) * t);
+/** Split a convex polygon by plane `p[axis] = value`; returns [below, above]. */
+function splitPoly(poly, axis, value) {
+  const lo = [], hi = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length], da = a[axis] - value, db = b[axis] - value;
+    (da <= 0 ? lo : hi).push(a);
+    if ((da < 0 && db > 0) || (da > 0 && db < 0)) { const m = lerpV(a, b, da / (da - db)); lo.push(m); hi.push(m); }
+  }
+  return [lo.length >= 3 ? lo : null, hi.length >= 3 ? hi : null];
+}
+/** Cut a polygon by a box: returns { inside, outside[] }. */
+function cutBox(poly, box) {
+  const outside = []; let cur = poly;
+  for (const [axis, key] of [[0, 'x'], [1, 'y'], [2, 'z']]) {
+    const [mn, mx] = box[key];
+    if (isFinite(mn)) { const [lo, hi] = splitPoly(cur, axis, mn); if (lo) outside.push(lo); cur = hi; if (!cur) return { inside: null, outside }; }
+    if (isFinite(mx)) { const [lo, hi] = splitPoly(cur, axis, mx); if (hi) outside.push(hi); cur = lo; if (!cur) return { inside: null, outside }; }
+  }
+  return { inside: cur, outside };
+}
+const buckets = PARTS.map(() => []); // flat triangle vertex lists per part
+const emit = (id, poly) => { for (let k = 1; k + 1 < poly.length; k++) buckets[id].push(poly[0], poly[k], poly[k + 1]); };
+for (let t = 0; t < triCount; t++) {
+  const tri = [vert(idx[t * 3]), vert(idx[t * 3 + 1]), vert(idx[t * 3 + 2])];
+  const cen = { x: (tri[0][0] + tri[1][0] + tri[2][0]) / 3, y: (tri[0][1] + tri[1][1] + tri[2][1]) / 3, z: (tri[0][2] + tri[1][2] + tri[2][2]) / 3 };
+  const w = wheelOf(cen); if (w >= 0) { emit(w, tri); continue; }
+  let pending = [tri];
+  for (const { id, boxes } of REGIONS) for (const box of boxes) {
+    const next = [];
+    for (const poly of pending) { const { inside, outside } = cutBox(poly, box); if (inside) emit(id, inside); next.push(...outside); }
+    pending = next;
+  }
+  pending.forEach(p => emit(BODY, p));
+}
+
+const parts = PARTS.map((p, pi) => {
+  const vs = buckets[pi];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vs.flatMap(v => v.slice(0, 3))), 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(vs.flatMap(v => v.slice(3, 6))), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(vs.flatMap(v => v.slice(6, 8))), 2));
+  return { ...p, geo: mergeVertices(g, 1e-5) };
+});
+document.getElementById('stats').textContent = parts.map(p => `${p.name.padEnd(10)} v${p.geo.attributes.position.count} t${p.geo.index.count / 3}`).join('\n');
+
+const meshes = [];
+const debugMats = parts.map((p, i) => new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL((i * 0.381) % 1, 0.65, 0.55), side: THREE.DoubleSide, roughness: 0.6 }));
+const texMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+parts.forEach((p, i) => {
+  const g = p.geo; const piv = new THREE.Vector3(...p.pivot);
+  const s = p.rest?.s ?? 1;
+  // local to pivot (and the rear-wheel size fix)
+  g.translate(-piv.x, -piv.y, -piv.z); if (s !== 1) g.scale(s, s, s);
+  if (p.rest) { piv.y += p.rest.dy; p.pivot = piv.toArray().map(v => +v.toFixed(4)); }
+  const m = new THREE.Mesh(g, debugMats[i]); m.position.copy(piv); m.userData = { p, piv }; scene.add(m); meshes.push(m);
+});
+const ex = document.getElementById('ex'), tx = document.getElementById('tx');
+const upd = () => meshes.forEach((m, i) => { const e = +ex.value; m.position.copy(m.userData.piv).addScaledVector(new THREE.Vector3(...m.userData.p.dir), e * 0.6); m.material = tx.checked ? texMat : debugMats[i]; });
+ex.oninput = upd; tx.onchange = upd;
+r.setAnimationLoop(() => { oc.update(); r.render(scene, cam); });
+
+// ---------- export ----------
+const log = s => document.getElementById('log').textContent = ' ' + s;
+const post = (file, body) => fetch('/save?file=' + file, { method: 'POST', body });
+
+async function exportMesh() {
+  const box = new THREE.Box3();
+  meshes.forEach(m => { m.geometry.computeBoundingBox(); box.union(m.geometry.boundingBox); });
+  const chunks = []; let off = 0; const manifest = { parts: [] };
+  const push = arr => { const o = off; chunks.push(arr); off += arr.byteLength; const pad = (4 - (off % 4)) % 4; if (pad) { chunks.push(new Uint8Array(pad)); off += pad; } return o; };
+  for (const m of meshes) {
+    const g = m.geometry, bb = g.boundingBox, cnt = g.attributes.position.count;
+    const size = bb.getSize(new THREE.Vector3());
+    const P = new Uint16Array(cnt * 3), N = new Int8Array(cnt * 4), U = new Uint16Array(cnt * 2);
+    for (let i = 0; i < cnt; i++) {
+      for (let k = 0; k < 3; k++) {
+        const mn = bb.min.getComponent(k), sz = size.getComponent(k) || 1;
+        P[i * 3 + k] = Math.round((g.attributes.position.array[i * 3 + k] - mn) / sz * 65535);
+        N[i * 4 + k] = Math.round(g.attributes.normal.array[i * 3 + k] * 127);
+      }
+      U[i * 2] = Math.round(THREE.MathUtils.clamp(g.attributes.uv.array[i * 2], 0, 1) * 65535);
+      U[i * 2 + 1] = Math.round(THREE.MathUtils.clamp(g.attributes.uv.array[i * 2 + 1], 0, 1) * 65535);
+    }
+    const I = cnt > 65535 ? new Uint32Array(g.index.array) : new Uint16Array(g.index.array);
+    const p = m.userData.p;
+    manifest.parts.push({
+      name: p.name, label: p.label, group: p.group, pivot: p.pivot, dir: p.dir, count: cnt, indexCount: I.length,
+      min: bb.min.toArray().map(v => +v.toFixed(6)), size: size.toArray().map(v => +v.toFixed(6)),
+      pos: push(P), nrm: push(N), uv: push(U), idx: push(I), idx32: I instanceof Uint32Array
+    });
+  }
+  manifest.wheels = WHEELS; manifest.bytes = off;
+  const bin = new Uint8Array(off); let o = 0; for (const ch of chunks) { bin.set(new Uint8Array(ch.buffer, ch.byteOffset, ch.byteLength), o); o += ch.byteLength; }
+  await post('car.bin', bin); await post('car.json', JSON.stringify(manifest));
+  return off;
+}
+
+async function exportTextures() {
+  const img = await new Promise(res => { const i = new Image(); i.onload = () => res(i); i.src = '../_src/shaded.png'; });
+  const W = img.width, H = img.height;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const ctx = cv.getContext('2d'); ctx.drawImage(img, 0, 0);
+  const src = ctx.getImageData(0, 0, W, H);
+  const albedo = await new Promise(res => cv.toBlob(res, 'image/webp', 0.9));
+  // mask: R = paint (also clearcoat), G = roughness, B = metalness — half resolution is plenty
+  const mw = W / 2, mh = H / 2, mc = document.createElement('canvas'); mc.width = mw; mc.height = mh;
+  const mctx = mc.getContext('2d'); const out = mctx.createImageData(mw, mh);
+  const ss = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+  for (let y = 0; y < mh; y++) for (let x = 0; x < mw; x++) {
+    let R = 0, G = 0, B = 0;
+    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) { const i = ((y * 2 + dy) * W + x * 2 + dx) * 4; R += src.data[i]; G += src.data[i + 1]; B += src.data[i + 2]; }
+    R /= 1020; G /= 1020; B /= 1020;
+    const mx = Math.max(R, G, B), mn = Math.min(R, G, B), sat = mx > 0 ? (mx - mn) / mx : 0, lum = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+    const paint = ss(0.42, 0.6, (R - Math.max(G, B)) / Math.max(R, 1e-3)) * ss(0.18, 0.32, R);
+    const chrome = (1 - ss(0.12, 0.25, sat)) * ss(0.35, 0.6, lum) * (1 - paint);
+    const rough = paint * 0.38 + chrome * 0.16 + (1 - paint - chrome) * 0.42;
+    const metal = chrome * 1.0 + paint * 0.25;
+    const o = (y * mw + x) * 4;
+    out.data[o] = paint * 255; out.data[o + 1] = rough * 255; out.data[o + 2] = metal * 255; out.data[o + 3] = 255;
+  }
+  mctx.putImageData(out, 0, 0);
+  const mask = await new Promise(res => mc.toBlob(res, 'image/png'));
+  await post('car.webp', albedo); await post('car-mask.png', mask);
+  return [albedo.size, mask.size];
+}
+
+document.getElementById('save').onclick = async () => {
+  log('exporting…');
+  const bytes = await exportMesh(); const [t1, t2] = await exportTextures();
+  log(`done: bin ${(bytes / 1024) | 0}KB, albedo ${(t1 / 1024) | 0}KB, mask ${(t2 / 1024) | 0}KB`);
+};
+window.exportAll = () => document.getElementById('save').onclick();
+</script></body></html>

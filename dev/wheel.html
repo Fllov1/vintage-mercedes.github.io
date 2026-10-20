@@ -1,0 +1,132 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>wheel dev</title>
+<style>html,body{margin:0;height:100%;background:#222}canvas{display:block}#log{position:fixed;top:8px;left:8px;color:#ddd;font:12px monospace;white-space:pre;background:#000a;padding:8px}</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"}}</script>
+</head><body><div id="log"></div>
+<script type="module">
+// Dev-only: inspect the source wheel OBJ (groups, bounds, UVs).
+import * as THREE from 'three';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(innerWidth, innerHeight); document.body.appendChild(r.domElement);
+const s = new THREE.Scene(); s.environment = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment()).texture;
+const c = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 1, 5000);
+const oc = new OrbitControls(c, r.domElement);
+const obj = await new OBJLoader().loadAsync('../_src/wheel/wheel.obj');
+const box = new THREE.Box3().setFromObject(obj); const ctr = box.getCenter(new THREE.Vector3());
+oc.target.copy(ctr); c.position.copy(ctr).add(new THREE.Vector3(150, 40, 60));
+const lines = [];
+obj.children.forEach((m, i) => {
+  const b = new THREE.Box3().setFromObject(m), g = m.geometry, uv = g.attributes.uv;
+  let umin = 1e9, umax = -1e9, vmin = 1e9, vmax = -1e9;
+  if (uv) for (let k = 0; k < uv.count; k++) { umin = Math.min(umin, uv.getX(k)); umax = Math.max(umax, uv.getX(k)); vmin = Math.min(vmin, uv.getY(k)); vmax = Math.max(vmax, uv.getY(k)); }
+  lines.push(`${m.name.padEnd(8)} tris ${g.attributes.position.count / 3} min ${b.min.toArray().map(v => v.toFixed(1))} max ${b.max.toArray().map(v => v.toFixed(1))} uv ${umin.toFixed(2)}..${umax.toFixed(2)} ${vmin.toFixed(2)}..${vmax.toFixed(2)}`);
+  m.material = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(i / 7, 0.6, 0.55), metalness: 0.5, roughness: 0.35, side: THREE.DoubleSide });
+});
+document.getElementById('log').textContent = lines.join('\n');
+const tl = new THREE.TextureLoader(), T = n => { const t = tl.load('../_src/wheel/' + n); t.colorSpace = THREE.SRGBColorSpace; return t; };
+window.texMode = () => {
+  const by = Object.fromEntries(obj.children.map(m => [m.name, m]));
+  by.disk.material = new THREE.MeshStandardMaterial({ map: T('disk.jpg'), metalness: 1, roughness: 0.3 });
+  by.logo.material = new THREE.MeshStandardMaterial({ map: T('logo.png') });
+  by.lastik.material = new THREE.MeshStandardMaterial({ map: T('lastik_yanak.png'), roughness: 0.8 });
+  by.jant.material = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 1, roughness: 0.15 });
+};
+// ---------- export: assets/wheel.bin + wheel.json ----------
+// Normalised: axle = X through origin, tire radius = 1, outer face toward -X.
+// The source is a modern low-profile wheel; to get 1950s proportions (13" rim, tall sidewall)
+// everything inside the tire shrinks by RIM_K and the tire's sidewall is stretched inward.
+import('three/addons/utils/BufferGeometryUtils.js').then(({ mergeVertices, toCreasedNormals }) => {
+  const RIM_K = 0.8;
+  const by = Object.fromEntries(obj.children.map(m => [m.name, m.geometry]));
+  const tb = new THREE.Box3().setFromBufferAttribute(by.lastik.attributes.position);
+  const C = tb.getCenter(new THREE.Vector3()), R = (tb.max.y - tb.min.y) / 2;
+  const rimR = (new THREE.Box3().setFromBufferAttribute(by.jant.attributes.position).max.y - C.y);
+  const stretch = (R - rimR * RIM_K) / (R - rimR);
+  const norm = (g, isTire) => {
+    g = g.clone(); g.deleteAttribute('color');
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      let x = (p.getX(i) - C.x) / R, y = (p.getY(i) - C.y) / R, z = (p.getZ(i) - C.z) / R;
+      const r = Math.hypot(y, z);
+      const r2 = isTire ? 1 - (1 - r) * stretch : r * RIM_K;
+      if (r > 1e-6) { y *= r2 / r; z *= r2 / r; }
+      if (!isTire) x *= RIM_K;
+      p.setXYZ(i, x, y, z);
+    }
+    // keep the authored normals (exact for the uniform rim scale, close enough for the tire stretch)
+    return g;
+  };
+  // split the tire into sidewall (planar-UV'd, gets the sidewall texture) and tread
+  const splitTire = g => {
+    const p = g.attributes.position, n = g.attributes.normal, side = [], tread = [];
+    for (let t = 0; t < p.count; t += 3) {
+      const nx = (n.getX(t) + n.getX(t + 1) + n.getX(t + 2)) / 3;
+      (Math.abs(nx) > 0.6 ? side : tread).push(t);
+    }
+    const pick = list => {
+      const out = new THREE.BufferGeometry();
+      for (const name of ['position', 'normal', 'uv']) {
+        const a = g.attributes[name], arr = new Float32Array(list.length * 3 * a.itemSize);
+        list.forEach((t, j) => { for (let k = 0; k < 3; k++) for (let c = 0; c < a.itemSize; c++) arr[(j * 3 + k) * a.itemSize + c] = a.array[(t + k) * a.itemSize + c]; });
+        out.setAttribute(name, new THREE.BufferAttribute(arr, a.itemSize));
+      }
+      return out;
+    };
+    return [pick(side), pick(tread)];
+  };
+  const tire = norm(by.lastik, true);
+  const [sidewall, tread] = splitTire(tire);
+  const groups = {
+    sidewall, tread, rim: norm(by.jant), hub: norm(by.merkez), logo: norm(by.logo), nuts: norm(by.bijon), disc: norm(by.disk), caliper: norm(by.balata),
+  };
+  // perf: decimate the heaviest, untextured pieces (fraction of vertices to REMOVE)
+  const DECIMATE = { tread: 0.6, nuts: 0.65, rim: 0.35, hub: 0.5, caliper: 0.4 };
+  window.exportWheel = async () => {
+    const { SimplifyModifier } = await import('three/addons/modifiers/SimplifyModifier.js');
+    const mod = new SimplifyModifier();
+    for (const [name, frac] of Object.entries(DECIMATE)) {
+      let g = mergeVertices(groups[name].clone().deleteAttribute('uv'), 1e-4);
+      g.deleteAttribute('normal'); g = mergeVertices(g, 1e-4);
+      const out = mod.modify(g, Math.floor(g.attributes.position.count * frac));
+      const flat = toCreasedNormals(out, Math.PI / 6); // smooth curves, keep sharp spoke/tread edges
+      flat.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(flat.attributes.position.count * 2), 2));
+      console.log(name, groups[name].attributes.position.count / 3, '→', flat.attributes.position.count / 3);
+      groups[name] = flat;
+    }
+    const chunks = []; let off = 0; const manifest = { parts: [] };
+    const push = arr => { const o = off; chunks.push(arr); off += arr.byteLength; const pad = (4 - off % 4) % 4; if (pad) { chunks.push(new Uint8Array(pad)); off += pad; } return o; };
+    for (const [name, g0] of Object.entries(groups)) {
+      const g = mergeVertices(g0, 1e-4); g.computeBoundingBox();
+      const bb = g.boundingBox, size = bb.getSize(new THREE.Vector3()), cnt = g.attributes.position.count;
+      const P = new Uint16Array(cnt * 3), N = new Int8Array(cnt * 4), U = new Uint16Array(cnt * 2);
+      for (let i = 0; i < cnt; i++) {
+        for (let k = 0; k < 3; k++) {
+          P[i * 3 + k] = Math.round((g.attributes.position.array[i * 3 + k] - bb.min.getComponent(k)) / (size.getComponent(k) || 1) * 65535);
+          N[i * 4 + k] = Math.round(g.attributes.normal.array[i * 3 + k] * 127);
+        }
+        U[i * 2] = Math.round(THREE.MathUtils.clamp(g.attributes.uv.array[i * 2], 0, 1) * 65535);
+        U[i * 2 + 1] = Math.round(THREE.MathUtils.clamp(g.attributes.uv.array[i * 2 + 1], 0, 1) * 65535);
+      }
+      const I = cnt > 65535 ? new Uint32Array(g.index.array) : new Uint16Array(g.index.array);
+      manifest.parts.push({ name, pivot: [0, 0, 0], dir: [0, 0, 0], count: cnt, indexCount: I.length,
+        min: bb.min.toArray(), size: size.toArray(), pos: push(P), nrm: push(N), uv: push(U), idx: push(I), idx32: I instanceof Uint32Array });
+    }
+    const bin = new Uint8Array(off); let o = 0; for (const ch of chunks) { bin.set(new Uint8Array(ch.buffer, ch.byteOffset, ch.byteLength), o); o += ch.byteLength; }
+    await fetch('/save?file=wheel.bin', { method: 'POST', body: bin });
+    await fetch('/save?file=wheel.json', { method: 'POST', body: JSON.stringify(manifest) });
+    return manifest.parts.map(p => `${p.name}:${p.count}v/${p.indexCount / 3}t`).join(' ') + ` | ${(off / 1024) | 0}KB`;
+  };
+  // preview the normalised result
+  window.previewNorm = () => {
+    s.remove(obj); const grp = new THREE.Group(); s.add(grp);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.6, roughness: 0.3, side: THREE.DoubleSide });
+    for (const g of Object.values(groups)) grp.add(new THREE.Mesh(g, mat));
+    oc.target.set(0, 0, 0); c.near = 0.01; c.updateProjectionMatrix(); c.position.set(-3, 0.6, 1.2); oc.update();
+  };
+});
+s.add(obj); window.obj = obj; window.cam = c; window.oc = oc;
+r.setAnimationLoop(() => { oc.update(); r.render(s, c); });
+</script></body></html>
